@@ -16,7 +16,11 @@ func main() {
 	start := time.Now()
 	log.Printf("Starting screenshot...\n")
 	// creating context
-	ctx, cancel := chromedp.NewContext(context.Background())
+	ctx, cancel := chromedp.NewContext(
+		context.Background(),
+		chromedp.WithLogf(log.Printf),
+	)
+
 	defer cancel()
 	log.Printf("Context created\n")
 
