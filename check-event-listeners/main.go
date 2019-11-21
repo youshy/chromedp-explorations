@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"io/ioutil"
 	"log"
 	"math"
+	"strconv"
+	"strings"
 	"time"
 
-	"github.com/chromedp/cdproto/dom"
+	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
@@ -15,25 +17,7 @@ import (
 
 func main() {
 	start := time.Now()
-	/*
-		log.Printf("Starting screenshot...\n")
-		// creating context
-		ctx, cancel := chromedp.NewContext(context.Background())
-		defer cancel()
-		log.Printf("Context created\n")
-
-		//url := "https://ecs.co.uk"
-		url := "https://bbc.co.uk"
-
-		// get the element screenshot
-		var buf []byte
-		if err := chromedp.Run(ctx, fullScreenshot(url, 100, &buf)); err != nil {
-			log.Fatal(err)
-		}
-		if err := ioutil.WriteFile("page_scr.png", buf, 0644); err != nil {
-			log.Fatal(err)
-		}
-	*/
+	log.Printf("Starting investigating DOM...\n")
 	// create chrome instance
 	ctx, cancel := chromedp.NewContext(
 		context.Background(),
@@ -41,74 +25,129 @@ func main() {
 	)
 	defer cancel()
 
-	// create a timeout
-	//ctx, cancel = context.WithTimeout(ctx, 15*time.Second)
-	//defer cancel()
-
 	url := "https://angular.realworld.io/"
-	/*
-		// navigate to a page, wait for an element, click
-		var example string
-		err := chromedp.Run(ctx,
-			chromedp.Navigate(url),
-			// wait for footer element is visible (ie, page is loaded)
-			chromedp.WaitVisible(`body > footer`),
-			// find and click "Expand All" link
-			chromedp.Click(`#pkg-examples > div`, chromedp.NodeVisible),
-			// retrieve the value of the textarea
-			chromedp.Value(`#example_After .play .input textarea`, &example),
-		)
-		if err != nil {
-			log.Fatal(err)
-		}
-	*/
-	var res string
+
+	var scr []byte
+	var nodes []*cdp.Node
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(url),
-		chromedp.ActionFunc(func(ctx context.Context) error {
-			node, err := dom.GetDocument().Do(ctx)
-			if err != nil {
-				return err
-			}
-			res, err = dom.GetOuterHTML().WithNodeID(node.NodeID).Do(ctx)
-			return err
-		}),
 	)
 	if err != nil {
-		log.Fatalln(err)
+		log.Fatal(err)
 	}
 
-	fmt.Printf("%v\n", res)
+	log.Printf("Sleeping...\n")
+	time.Sleep(time.Second * 2)
+	log.Printf("AWAKEN!\n")
+
+	err = chromedp.Run(ctx,
+		chromedp.Nodes("a", &nodes, chromedp.ByQueryAll),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	err = gimmescr("intial", scr, ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("Intial screen taken\n")
+
+	for _, v := range nodes {
+		if v.Children != nil {
+			_, err = strconv.Atoi(v.Children[0].NodeValue)
+			if err != nil {
+				if v.AttributeValue("href") == "" {
+					trim := strings.TrimSpace(v.Children[0].NodeValue)
+					/*
+						fmt.Printf("\n%s\n", v)
+						fmt.Printf("\t%s\n", v.AttributeValue("href"))
+					*/
+					screenname := "screen-" + trim
+					err = chromedp.Run(ctx, chromedp.Navigate(url))
+					if err != nil {
+						log.Fatal(err)
+					}
+					log.Printf("Waiting for page load...\n")
+					time.Sleep(time.Second * 2)
+					selector := "tag-list:nth-child(" + num + ")"
+					err = chromedp.Run(ctx, chromedp.Click(v, chromedp.NodeVisible))
+					if err != nil {
+						log.Fatal(err)
+					}
+					log.Printf("clicked!\n")
+					log.Printf("Waiting for page load for %s\n", trim)
+					time.Sleep(time.Second * 2)
+					err = gimmescr(screenname, scr, ctx)
+					log.Printf("Screen made for %s\n", trim)
+				}
+			}
+		}
+	}
+	/*
+
+		fmt.Printf("\t%s\n", nodes[105])
+		node, _ := nodes[105].MarshalJSON()
+		fmt.Printf("\t%s\n", node)
+		fmt.Printf("\t%s\n", nodes[105].Children[0].NodeValue)
+	*/
 
 	elapsed := time.Since(start)
 	log.Printf("Finding event listeners took %s\n", elapsed)
 }
 
-/*
-func main() {
-  ctx, cancel := chromedp.NewContext(context.Background())
-  defer cancel()
+func gimmescr(name string, scr []byte, ctx context.Context) error {
+	err := chromedp.Run(ctx, screenshot(&scr))
+	if err != nil {
+		return err
+	}
 
-  var res string
+	named := name + ".png"
+	err = ioutil.WriteFile(named, scr, 0644)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
-  err := chromedp.Run(ctx,
-    chromedp.Navigate(`http://example.com`),
-    chromedp.ActionFunc(func(ctx context.Context) error {
-      node, err := dom.GetDocument().Do(ctx)
-      if err != nil {
-        return err
-      }
-      res, err = dom.GetOuterHTML().WithNodeID(node.NodeID).Do(ctx)
-      return err
-    }),
-  )
+func screenshot(res *[]byte) chromedp.Tasks {
+	return chromedp.Tasks{
+		chromedp.ActionFunc(func(ctx context.Context) error {
+			_, _, contentSize, err := page.GetLayoutMetrics().Do(ctx)
+			if err != nil {
+				return err
+			}
 
-  if err != nil {
-    fmt.Println(err)
-  }
+			width, height := int64(math.Ceil(contentSize.Width)), int64(math.Ceil(contentSize.Height))
 
-  fmt.Println(res)
-*/
+			// force viewport emulation
+			err = emulation.SetDeviceMetricsOverride(width, height, 1, false).
+				WithScreenOrientation(&emulation.ScreenOrientation{
+					Type:  emulation.OrientationTypePortraitPrimary,
+					Angle: 0,
+				}).
+				Do(ctx)
+			if err != nil {
+				return err
+			}
+
+			// capture screenshot
+			*res, err = page.CaptureScreenshot().
+				WithQuality(100).
+				WithClip(&page.Viewport{
+					X:      contentSize.X,
+					Y:      contentSize.Y,
+					Width:  contentSize.Width,
+					Height: contentSize.Height,
+					Scale:  1,
+				}).Do(ctx)
+			if err != nil {
+				return err
+			}
+			return nil
+		}),
+	}
+}
 
 func fullScreenshot(urlstr string, quality int64, res *[]byte) chromedp.Tasks {
 	return chromedp.Tasks{
