@@ -59,10 +59,8 @@ func main() {
 			if err != nil {
 				if v.AttributeValue("href") == "" {
 					trim := strings.TrimSpace(v.Children[0].NodeValue)
-					/*
-						fmt.Printf("\n%s\n", v)
-						fmt.Printf("\t%s\n", v.AttributeValue("href"))
-					*/
+					// fmt.Printf("\n%s\n", v)
+					//	fmt.Printf("\t%s\n", v.AttributeValue("href"))
 					screenname := "screen-" + trim
 					err = chromedp.Run(ctx, chromedp.Navigate(url))
 					if err != nil {
@@ -70,8 +68,9 @@ func main() {
 					}
 					log.Printf("Waiting for page load...\n")
 					time.Sleep(time.Second * 2)
-					selector := "tag-list:nth-child(" + num + ")"
-					err = chromedp.Run(ctx, chromedp.Click(v, chromedp.NodeVisible))
+					selector := "//*[text()=\"" + v.Children[0].NodeValue + "\"]"
+					log.Printf("Selector:\t%s\n", selector)
+					err = chromedp.Run(ctx, chromedp.Click(selector, chromedp.NodeVisible))
 					if err != nil {
 						log.Fatal(err)
 					}
